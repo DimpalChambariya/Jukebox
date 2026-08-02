@@ -2,8 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const { setConfig, getConfig } = require('../utils/config');
 const { requireAdminSession } = require('../middleware/adminSession');
-const fs = require('fs');
-const path = require('path');
+const { setEnvVar, removeEnvVar } = require('../utils/envFile');
 
 const router = express.Router();
 
@@ -124,40 +123,9 @@ router.get('/callback', async (req, res) => {
     
     const userId = userResponse.data.id;
     
-    // Save tokens to .env file
-    const envPath = path.join(__dirname, '../../.env');
-    let envContent = '';
-    
-    if (fs.existsSync(envPath)) {
-      envContent = fs.readFileSync(envPath, 'utf8');
-    }
-    
-    // Update or add refresh token
-    if (envContent.includes('SPOTIFY_REFRESH_TOKEN=')) {
-      envContent = envContent.replace(
-        /SPOTIFY_REFRESH_TOKEN=.*/g,
-        `SPOTIFY_REFRESH_TOKEN=${refresh_token}`
-      );
-    } else {
-      envContent += `\nSPOTIFY_REFRESH_TOKEN=${refresh_token}\n`;
-    }
-    
-    // Update or add user ID
-    if (envContent.includes('SPOTIFY_USER_ID=')) {
-      envContent = envContent.replace(
-        /SPOTIFY_USER_ID=.*/g,
-        `SPOTIFY_USER_ID=${userId}`
-      );
-    } else {
-      envContent += `\nSPOTIFY_USER_ID=${userId}\n`;
-    }
-    
-    // Write back to .env
-    fs.writeFileSync(envPath, envContent);
-    
-    // Update in-memory environment variables immediately (no restart needed)
-    process.env.SPOTIFY_REFRESH_TOKEN = refresh_token;
-    process.env.SPOTIFY_USER_ID = userId;
+    // Save tokens to .env file and update process.env (no restart needed)
+    setEnvVar('SPOTIFY_REFRESH_TOKEN', refresh_token);
+    setEnvVar('SPOTIFY_USER_ID', userId);
     
     // Clear any cached Spotify access token to force refresh with new token
     // This ensures the new refresh token is used immediately
@@ -236,29 +204,8 @@ router.get('/status', (req, res) => {
 // Disconnect Spotify account (requires admin auth)
 router.post('/disconnect', requireAdminSession, (req, res) => {
   try {
-    const envPath = path.join(__dirname, '../../.env');
-    let envContent = '';
-    
-    if (fs.existsSync(envPath)) {
-      envContent = fs.readFileSync(envPath, 'utf8');
-    }
-    
-    // Remove refresh token from .env
-    if (envContent.includes('SPOTIFY_REFRESH_TOKEN=')) {
-      envContent = envContent.replace(/SPOTIFY_REFRESH_TOKEN=.*\n?/g, '');
-    }
-    
-    // Remove user ID from .env
-    if (envContent.includes('SPOTIFY_USER_ID=')) {
-      envContent = envContent.replace(/SPOTIFY_USER_ID=.*\n?/g, '');
-    }
-    
-    // Write back to .env
-    fs.writeFileSync(envPath, envContent);
-    
-    // Clear in-memory environment variables
-    delete process.env.SPOTIFY_REFRESH_TOKEN;
-    delete process.env.SPOTIFY_USER_ID;
+    removeEnvVar('SPOTIFY_REFRESH_TOKEN');
+    removeEnvVar('SPOTIFY_USER_ID');
     
     // Clear any cached Spotify access token
     const spotifyUtils = require('../utils/spotify');

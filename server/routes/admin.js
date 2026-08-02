@@ -4,6 +4,7 @@ const { getConfig } = require('../utils/config');
 const { requireAdminSession } = require('../middleware/adminSession');
 const { isTotpEnabled, verifyTotp } = require('../utils/adminLogin');
 const { verifyAdminPassword, upgradePasswordToHashIfNeeded } = require('../utils/adminPassword');
+const { EDITABLE_ENV, EDITABLE_KEYS, listEditableEnvForAdmin, setEnvVar, removeEnvVar } = require('../utils/envFile');
 
 const router = express.Router();
 const db = getDb();
@@ -65,6 +66,86 @@ router.get('/session', (req, res) => {
 });
 
 router.use(requireAdminSession);
+
+// List editable .env variables (secrets masked)
+router.get('/env', (req, res) => {
+  try {
+    res.json({ vars: listEditableEnvForAdmin() });
+  } catch (error) {
+    console.error('Error reading env vars:', error);
+    res.status(500).json({ error: 'Failed to read environment variables' });
+  }
+});
+
+// Update one or more .env variables
+// Body: { updates: { KEY: "value", ... } } — for secrets, omit or send "" to keep existing;
+// send null to clear a key.
+router.put('/env', (req, res) => {
+  try {
+    const updates = req.body?.updates;
+    if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
+      return res.status(400).json({ error: 'updates object required' });
+    }
+
+    const metaByKey = Object.fromEntries(EDITABLE_ENV.map((m) => [m.key, m]));
+    const applied = [];
+    const skipped = [];
+    let needsRestart = false;
+
+    for (const [key, value] of Object.entries(updates)) {
+      const meta = metaByKey[key];
+      if (!meta || !EDITABLE_KEYS.has(key)) {
+        skipped.push({ key, reason: 'not editable' });
+        continue;
+      }
+
+      if (value === null) {
+        removeEnvVar(key);
+        applied.push(key);
+        if (meta.needsRestart) needsRestart = true;
+        continue;
+      }
+
+      if (value === undefined) continue;
+
+      const str = String(value);
+      // Empty string on a secret means "leave unchanged"
+      if (meta.secret && str.trim() === '') {
+        skipped.push({ key, reason: 'unchanged' });
+        continue;
+      }
+
+      setEnvVar(key, str);
+      applied.push(key);
+      if (meta.needsRestart) needsRestart = true;
+    }
+
+    // Spot credentials / refresh token changes should drop cached access tokens
+    if (
+      applied.includes('SPOTIFY_CLIENT_ID') ||
+      applied.includes('SPOTIFY_CLIENT_SECRET') ||
+      applied.includes('SPOTIFY_REFRESH_TOKEN')
+    ) {
+      try {
+        const spotifyUtils = require('../utils/spotify');
+        if (spotifyUtils.clearTokenCache) spotifyUtils.clearTokenCache();
+      } catch {
+        /* ignore */
+      }
+    }
+
+    res.json({
+      success: true,
+      applied,
+      skipped,
+      needsRestart,
+      vars: listEditableEnvForAdmin()
+    });
+  } catch (error) {
+    console.error('Error updating env vars:', error);
+    res.status(500).json({ error: error.message || 'Failed to update environment variables' });
+  }
+});
 
 // Get all devices (fingerprints)
 router.get('/devices', (req, res) => {

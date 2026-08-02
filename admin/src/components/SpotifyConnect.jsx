@@ -30,7 +30,7 @@ function SpotifyConnect() {
       const response = await axios.get('/api/auth/authorize')
       window.location.href = response.data.authUrl
     } catch (error) {
-      alert('Failed to start authorization. Please check your Spotify credentials in .env file.')
+      alert('Failed to start authorization. Please check your Spotify credentials in the Environment tab.')
     }
   }
 
@@ -79,8 +79,8 @@ function SpotifyConnect() {
         </div>
         {(!status?.hasClientId || !status?.hasClientSecret) && (
           <div className="rounded-lg bg-destructive/10 text-destructive p-3 mb-4 text-sm">
-            {!status?.hasClientId && <div>SPOTIFY_CLIENT_ID not configured. Add it to .env</div>}
-            {!status?.hasClientSecret && <div>SPOTIFY_CLIENT_SECRET not configured. Add it to .env</div>}
+            {!status?.hasClientId && <div>SPOTIFY_CLIENT_ID not configured. Set it in the Environment tab.</div>}
+            {!status?.hasClientSecret && <div>SPOTIFY_CLIENT_SECRET not configured. Set it in the Environment tab.</div>}
           </div>
         )}
         {showConnectButton && (
@@ -97,7 +97,7 @@ function SpotifyConnect() {
         )}
         {!showConnectButton && status && (
           <div className="rounded-lg bg-destructive/10 text-destructive p-3 mb-4 text-sm">
-            Please configure SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in your .env file.
+            Please configure SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in the Environment tab.
           </div>
         )}
         {isConnected && (
