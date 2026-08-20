@@ -169,6 +169,11 @@ function QueueForm({ fingerprintId }) {
 
   const handleQueueTrack = async (trackId) => {
     if (pendingQueue) return
+    if (!fingerprintId) {
+      setMessage('Still connecting - please wait a moment and try again.')
+      setMessageType('error')
+      return
+    }
     setIsQueueing(true)
     setMessage(null)
     let latestConfig = config
@@ -195,6 +200,11 @@ function QueueForm({ fingerprintId }) {
   const handleQueueUrl = async (e) => {
     e.preventDefault()
     if (!urlInput.trim() || pendingQueue) return
+    if (!fingerprintId) {
+      setMessage('Still connecting - please wait a moment and try again.')
+      setMessageType('error')
+      return
+    }
 
     setIsQueueing(true)
     setMessage(null)

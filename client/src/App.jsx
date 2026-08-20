@@ -20,6 +20,7 @@ function App() {
   const [authError, setAuthError] = useState('')
   const [username, setUsername] = useState('')
   const [usernameError, setUsernameError] = useState('')
+  const [connectFailed, setConnectFailed] = useState(false)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -33,28 +34,46 @@ function App() {
       window.history.replaceState({}, '', '/')
     }
 
-    axios.post('/api/fingerprint/generate')
-      .then(response => {
-        const d = response.data
-        setFingerprintId(d.fingerprint_id)
-        setRequiresUsername(d.requires_username || false)
-        setRequiresAuth(!!(d.requires_github_auth || d.requires_google_auth))
-        setGithubConfigured(d.github_oauth_configured || false)
-        setGoogleConfigured(d.google_oauth_configured || false)
-        setLoading(false)
-      })
-      .catch(error => {
-        const d = error.response?.data || {}
-        if (d.requires_username || d.requires_github_auth || d.requires_google_auth) {
-          setRequiresUsername(!!d.requires_username)
+    let cancelled = false
+
+    // On a free/cold-start-prone host, the very first request can fail
+    // outright (e.g. a 502 while the server wakes up) rather than just be
+    // slow. Retrying a few times means the user sees "connecting..." instead
+    // of the form silently unlocking with no fingerprint ID at all.
+    const attemptFingerprint = (attempt = 0) => {
+      axios.post('/api/fingerprint/generate')
+        .then(response => {
+          if (cancelled) return
+          const d = response.data
+          setFingerprintId(d.fingerprint_id)
+          setRequiresUsername(d.requires_username || false)
           setRequiresAuth(!!(d.requires_github_auth || d.requires_google_auth))
           setGithubConfigured(d.github_oauth_configured || false)
           setGoogleConfigured(d.google_oauth_configured || false)
-        } else {
+          setConnectFailed(false)
+          setLoading(false)
+        })
+        .catch(error => {
+          if (cancelled) return
+          const d = error.response?.data || {}
+          if (d.requires_username || d.requires_github_auth || d.requires_google_auth) {
+            setRequiresUsername(!!d.requires_username)
+            setRequiresAuth(!!(d.requires_github_auth || d.requires_google_auth))
+            setGithubConfigured(d.github_oauth_configured || false)
+            setGoogleConfigured(d.google_oauth_configured || false)
+            setLoading(false)
+            return
+          }
           console.error('Error generating fingerprint:', error)
-        }
-        setLoading(false)
-      })
+          if (attempt < 4) {
+            setTimeout(() => attemptFingerprint(attempt + 1), 2000 * (attempt + 1))
+          } else {
+            setConnectFailed(true)
+            setLoading(false)
+          }
+        })
+    }
+    attemptFingerprint()
 
     const updateNowPlaying = () => {
       axios.get('/api/now-playing')
@@ -64,7 +83,10 @@ function App() {
 
     updateNowPlaying()
     const interval = setInterval(updateNowPlaying, 3000)
-    return () => clearInterval(interval)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
   }, [])
 
   const handleUsernameSubmit = async (e) => {
@@ -95,6 +117,23 @@ function App() {
     return (
       <div className="min-h-screen min-h-[100dvh] flex items-center justify-center bg-background">
         <div className="text-muted-foreground animate-pulse">Loading...</div>
+      </div>
+    )
+  }
+
+  if (connectFailed) {
+    return (
+      <div className="min-h-screen min-h-[100dvh] flex items-center justify-center bg-background px-4">
+        <div className="text-center space-y-3">
+          <p className="text-muted-foreground">Couldn't connect to the server. It may still be waking up.</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 rounded-lg border hover:bg-accent transition-colors"
+          >
+            Try again
+          </button>
+        </div>
       </div>
     )
   }
