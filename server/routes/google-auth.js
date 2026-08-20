@@ -3,6 +3,7 @@ const axios = require('axios');
 const crypto = require('crypto');
 const { getDb } = require('../db');
 const { isGoogleOAuthConfigured } = require('../utils/guest-auth');
+const { getCrossOriginCookieOptions } = require('../utils/cookieOptions');
 
 const router = express.Router();
 
@@ -92,7 +93,7 @@ router.get('/callback', async (req, res) => {
     res.cookie('fingerprint_id', fingerprintId, {
       httpOnly: true,
       maxAge: 365 * 24 * 60 * 60 * 1000,
-      sameSite: 'lax'
+      ...getCrossOriginCookieOptions()
     });
 
     const finalClientUrl = (process.env.CLIENT_URL || 'http://localhost:3000').replace(/\/$/, '');

@@ -34,7 +34,10 @@ function createSessionMiddleware() {
     cookie: {
       secure: cookieSecure,
       httpOnly: true,
-      sameSite: 'lax',
+      // SameSite=None is required for cross-site setups (e.g. admin frontend
+      // on Vercel calling an admin API on Render) and requires Secure; for a
+      // same-origin plain-HTTP deployment, Lax is what actually works.
+      sameSite: cookieSecure ? 'none' : 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000
     }
   });

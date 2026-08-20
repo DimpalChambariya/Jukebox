@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: mic-jukebox-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /healthz
+    disk:
+      name: mic-jukebox-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SERVICE_ROLE
+        value: merged
+      - key: DB_PATH
+        value: /app/data/queue.db
+      - key: ENV_FILE_PATH
+        value: /app/data/.env
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: CLIENT_URL
+        sync: false
+      - key: ADMIN_CLIENT_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SPOTIFY_CLIENT_ID
+        sync: false
+      - key: SPOTIFY_CLIENT_SECRET
+        sync: false
+      - key: SPOTIFY_REDIRECT_URI
+        sync: false
+      - key: SPOTIFY_REFRESH_TOKEN
+        sync: false
+      - key: SPOTIFY_USER_ID
+        sync: false

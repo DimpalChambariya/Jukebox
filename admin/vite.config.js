@@ -8,7 +8,12 @@ export default defineConfig(({ command, mode }) => {
 
   let base = '/'
   if (command === 'build') {
-    if (isDemo && mode === 'demo-local') {
+    if (env.VITE_BASE_PATH) {
+      // Explicit override for deployments where this app is NOT served under
+      // an /admin/ subpath - e.g. its own standalone Vercel project at its
+      // own domain root. Set VITE_BASE_PATH=/ there.
+      base = env.VITE_BASE_PATH
+    } else if (isDemo && mode === 'demo-local') {
       base = '/admin/'
     } else if (isDemo) {
       base = '/SpotiQueue/admin/'

@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const { getDb } = require('../db');
 const { getConfig } = require('../utils/config');
 const { getGuestAuthRequirements } = require('../utils/guest-auth');
+const { getCrossOriginCookieOptions } = require('../utils/cookieOptions');
 
 const router = express.Router();
 const db = getDb();
@@ -50,7 +51,7 @@ router.post('/generate', (req, res) => {
   res.cookie('fingerprint_id', fingerprintId, {
     httpOnly: true,
     maxAge: 365 * 24 * 60 * 60 * 1000, // 1 year
-    sameSite: 'lax'
+    ...getCrossOriginCookieOptions()
   });
   
   const fingerprint = db.prepare('SELECT * FROM fingerprints WHERE id = ?').get(fingerprintId);

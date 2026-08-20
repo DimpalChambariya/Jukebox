@@ -1,7 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 
-const ENV_PATH = path.join(__dirname, '../../.env');
+// Overridable so a host with only one persistent mount (e.g. a single Render
+// disk already used for the SQLite DB) can point this at the same disk -
+// otherwise tokens saved here (like a Spotify refresh token from "Connect
+// Spotify Account") would vanish on the next deploy/restart on such a host.
+const ENV_PATH = process.env.ENV_FILE_PATH || path.join(__dirname, '../../.env');
 
 /** Keys admins may view/edit from the panel. Secrets are masked on read. */
 const EDITABLE_ENV = [
