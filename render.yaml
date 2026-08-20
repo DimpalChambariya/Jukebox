@@ -5,19 +5,18 @@ services:
     dockerfilePath: ./Dockerfile
     plan: starter
     healthCheckPath: /healthz
-    disk:
-      name: mic-jukebox-data
-      mountPath: /app/data
-      sizeGB: 1
+    # No persistent disk: on Render this means the SQLite DB (admin config,
+    # votes, guest cooldown history) resets on every redeploy/restart -
+    # acceptable tradeoff for not paying for a disk. The one thing that
+    # actually needs to survive restarts, the Spotify connection, doesn't
+    # depend on this: SPOTIFY_REFRESH_TOKEN/SPOTIFY_USER_ID below are set as
+    # real Render env vars (platform-persisted, unaffected by disk), copied
+    # from the admin panel's "Connect Spotify Account" success screen once.
     envVars:
       - key: NODE_ENV
         value: production
       - key: SERVICE_ROLE
         value: merged
-      - key: DB_PATH
-        value: /app/data/queue.db
-      - key: ENV_FILE_PATH
-        value: /app/data/.env
       - key: COOKIE_SECURE
         value: "true"
       - key: CLIENT_URL

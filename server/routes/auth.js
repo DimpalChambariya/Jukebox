@@ -148,15 +148,29 @@ router.get('/callback', async (req, res) => {
       redirectUrl = 'https://' + redirectUrl;
     }
     
+    const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+
     res.send(`
       <html>
         <head><title>Authorization Successful</title></head>
         <body style="font-family: Arial; padding: 40px; text-align: center; background: #f5f5f5; color: #212121; min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0;">
-          <div style="background: white; color: #212121; padding: 40px; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 500px; border: 1px solid #e0e0e0;">
+          <div style="background: white; color: #212121; padding: 40px; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 560px; border: 1px solid #e0e0e0;">
             <h1 style="color: #212121; margin-bottom: 20px;">Authorization Successful</h1>
             <p style="margin-bottom: 10px;">Your Spotify account has been connected.</p>
-            <p style="margin-bottom: 30px; color: #666;">Refresh token and user ID have been saved and are now active.</p>
             <p style="margin-bottom: 20px; color: #424242;"><strong>No restart needed.</strong> Your connection is ready to use immediately.</p>
+
+            <div style="text-align: left; background: #fafafa; border: 1px solid #e0e0e0; border-radius: 4px; padding: 16px; margin-bottom: 24px;">
+              <p style="margin: 0 0 10px; font-size: 13px; color: #666;">
+                If this host doesn't persist files across restarts (e.g. a Render service with no disk), copy these into your platform's own environment variables now so reconnecting isn't needed after every redeploy. Keep this private - do not share or commit it.
+              </p>
+              <label style="display:block; font-size: 12px; font-weight: 600; margin-bottom: 4px;">SPOTIFY_REFRESH_TOKEN</label>
+              <input readonly onclick="this.select()" value="${escapeHtml(refresh_token)}" style="width: 100%; box-sizing: border-box; font-family: monospace; font-size: 12px; padding: 8px; margin-bottom: 12px; border: 1px solid #ccc; border-radius: 4px;" />
+              <label style="display:block; font-size: 12px; font-weight: 600; margin-bottom: 4px;">SPOTIFY_USER_ID</label>
+              <input readonly onclick="this.select()" value="${escapeHtml(userId)}" style="width: 100%; box-sizing: border-box; font-family: monospace; font-size: 12px; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" />
+            </div>
+
             <a href="/" style="display: inline-block; padding: 12px 24px; background: #212121; color: white; text-decoration: none; border-radius: 4px; font-weight: 500; margin-right: 10px;">Return to App</a>
             <a href="${redirectUrl}" style="display: inline-block; padding: 12px 24px; background: #616161; color: white; text-decoration: none; border-radius: 4px; font-weight: 500;">Go to Admin Panel</a>
           </div>
