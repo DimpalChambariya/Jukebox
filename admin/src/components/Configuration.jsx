@@ -198,6 +198,13 @@ function Configuration() {
 
       <Card>
         <CardContent className="pt-6">
+          <h2 className="text-lg font-semibold mb-4">Playback Controls</h2>
+          <ConfigItem config={config} updateConfig={updateConfig} label={<label className="flex items-center gap-2"><input type="checkbox" checked={config.playback_controls_enabled !== 'false'} onChange={(e) => handleChange('playback_controls_enabled', e.target.checked ? 'true' : 'false')} /> Enable Guest Playback Controls</label>} saveKey="playback_controls_enabled" saveVal={config.playback_controls_enabled !== 'false' ? 'true' : 'false'} help="Let guests skip next/previous and adjust volume. Requests are queued and throttled server-side so bursts of guests can't spam the Spotify API." />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-6">
           <h2 className="text-lg font-semibold mb-4">Song Voting</h2>
           <ConfigItem config={config} updateConfig={updateConfig} label={<label className="flex items-center gap-2"><input type="checkbox" checked={config.voting_enabled === 'true'} onChange={(e) => handleChange('voting_enabled', e.target.checked ? 'true' : 'false')} /> Enable Song Voting</label>} saveKey="voting_enabled" saveVal={config.voting_enabled || 'false'} help="Allow guests to vote on tracks in the queue (off by default)." />
           <ConfigItem config={config} updateConfig={updateConfig} label={<label className="flex items-center gap-2"><input type="checkbox" checked={config.voting_downvote_enabled !== 'false'} onChange={(e) => handleChange('voting_downvote_enabled', e.target.checked ? 'true' : 'false')} /> Enable Downvotes</label>} saveKey="voting_downvote_enabled" saveVal={config.voting_downvote_enabled !== 'false' ? 'true' : 'false'} help="Allow guests to downvote tracks in addition to upvoting. When disabled, only upvotes are shown." />

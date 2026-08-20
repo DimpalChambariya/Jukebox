@@ -518,7 +518,7 @@ export default function Display() {
       <div className="relative flex items-center justify-between px-6 sm:px-8 py-3 border-t border-white/10 bg-gray-950/95 backdrop-blur-sm shrink-0">
         <div className="flex items-center gap-2">
           <Music className="h-4 w-4 text-green-400" />
-          <span className="text-sm font-semibold tracking-tight">SpotiQueue</span>
+          <span className="text-sm font-semibold tracking-tight">MIC Jukebox</span>
         </div>
         {nowPlaying?.is_playing ? (
           <div className="flex items-center gap-1.5">

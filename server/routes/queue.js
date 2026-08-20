@@ -218,6 +218,33 @@ let queueCache = null;
 let queueCacheExpiry = 0;
 const QUEUE_CACHE_TTL = 20000;
 
+// Spotify's queue endpoint has no concept of "who added this" - it's just
+// track metadata. We correlate by looking up the most recent successful
+// queue_attempts row for each track_id and using that guest's display name.
+// Best-effort: if the same track was queued more than once, or it landed in
+// the queue some other way (e.g. someone using the Spotify app directly),
+// this can be wrong or absent.
+function getAddedByMap(trackIds) {
+  const ids = [...new Set((trackIds || []).filter(Boolean))];
+  if (ids.length === 0) return {};
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db.prepare(`
+    SELECT qa.track_id, qa.timestamp, f.username
+    FROM queue_attempts qa
+    JOIN fingerprints f ON f.id = qa.fingerprint_id
+    WHERE qa.status = 'success' AND qa.track_id IN (${placeholders})
+    ORDER BY qa.timestamp DESC
+  `).all(...ids);
+
+  const map = {};
+  for (const row of rows) {
+    if (!(row.track_id in map) && row.username) {
+      map[row.track_id] = row.username;
+    }
+  }
+  return map;
+}
+
 router.get('/current', async (req, res) => {
   try {
     const now = Date.now();
@@ -230,12 +257,16 @@ router.get('/current', async (req, res) => {
     const guestQueuedIds = new Set(
       db.prepare("SELECT DISTINCT track_id FROM queue_attempts WHERE status = 'success' AND track_id IS NOT NULL").all().map(r => r.track_id)
     );
+    const addedByMap = getAddedByMap([
+      ...(queue?.queue || []).map(t => t.id),
+      queue?.currently_playing?.id
+    ]);
 
     if (queue?.queue?.length > 0) {
-      queue.queue = queue.queue.map(t => ({ ...t, votable: guestQueuedIds.has(t.id) }));
+      queue.queue = queue.queue.map(t => ({ ...t, votable: guestQueuedIds.has(t.id), added_by: addedByMap[t.id] || null }));
     }
     if (queue?.currently_playing) {
-      queue.currently_playing = { ...queue.currently_playing, votable: guestQueuedIds.has(queue.currently_playing.id) };
+      queue.currently_playing = { ...queue.currently_playing, votable: guestQueuedIds.has(queue.currently_playing.id), added_by: addedByMap[queue.currently_playing.id] || null };
     }
 
     queueCache = queue;

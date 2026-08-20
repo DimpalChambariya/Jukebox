@@ -151,7 +151,7 @@ function App() {
                 <Menu className="h-6 w-6" />
               </button>
               <div className="min-w-0">
-                <h1 className="truncate text-lg font-bold leading-tight sm:text-xl">SpotiQueue Admin</h1>
+                <h1 className="truncate text-lg font-bold leading-tight sm:text-xl">MIC Jukebox Admin</h1>
                 <p className="truncate text-xs text-muted-foreground md:hidden">{activeLabel}</p>
               </div>
             </div>

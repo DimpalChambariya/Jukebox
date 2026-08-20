@@ -81,6 +81,10 @@ function Queue({ fingerprintId }) {
 
   if (loading || !queue) return null
 
+  // Spotify's Web API has no way to reorder or remove an item from the
+  // device's real playback queue - only the currently-playing track can be
+  // skipped. So this list stays in Spotify's actual play order; vote counts
+  // are shown but don't reorder it, to avoid implying an order we can't back.
   const upNext = queue.queue || []
   if (upNext.length === 0) return null
 
@@ -100,6 +104,9 @@ function Queue({ fingerprintId }) {
             <div className="flex-1 min-w-0">
               <div className="font-medium truncate">{track.name}</div>
               <div className="text-sm text-muted-foreground truncate">{track.artists}</div>
+              {track.added_by && (
+                <div className="text-xs text-muted-foreground/70 truncate">Added by {track.added_by}</div>
+              )}
             </div>
             {votingEnabled && fingerprintId && track.votable && (
               <div className="flex items-center gap-1 shrink-0">

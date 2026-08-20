@@ -23,7 +23,8 @@ router.get('/public', (req, res) => {
     rate_limit_custom_message: getConfig('rate_limit_custom_message') || '',
     queue_url: queueUrl,
     queue_grace_period_enabled: getConfig('queue_grace_period_enabled') !== 'false',
-    queue_grace_period_seconds: parseInt(getConfig('queue_grace_period_seconds') || '5', 10)
+    queue_grace_period_seconds: parseInt(getConfig('queue_grace_period_seconds') || '5', 10),
+    playback_controls_enabled: getConfig('playback_controls_enabled') !== 'false'
   });
 });
 

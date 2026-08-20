@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { Music, Pause } from 'lucide-react'
+import { Music, Pause, Play, SkipBack, SkipForward, Minus, Plus, Volume2, VolumeX } from 'lucide-react'
+import axios from '@/lib/api'
 
 function formatDuration(ms) {
   if (!ms || !Number.isFinite(ms)) return '0:00'
@@ -8,8 +9,103 @@ function formatDuration(ms) {
 
 function NowPlaying({ track }) {
   const [progress, setProgress] = useState(0)
+  const [controlsEnabled, setControlsEnabled] = useState(false)
+  const [pendingAction, setPendingAction] = useState(null)
+  const [controlError, setControlError] = useState('')
+  const [volumePercent, setVolumePercent] = useState(null)
+  const [editingVolume, setEditingVolume] = useState(false)
+  const [volumeInput, setVolumeInput] = useState('')
+  const [mutedVolume, setMutedVolume] = useState(null)
   const lastReceivedRef = useRef(null)
   const trackRef = useRef(null)
+
+  useEffect(() => {
+    axios.get('/api/config/public')
+      .then(res => setControlsEnabled(!!res.data?.playback_controls_enabled))
+      .catch(() => setControlsEnabled(false))
+    axios.get('/api/playback/state')
+      .then(res => {
+        const v = res.data?.state?.volume_percent
+        if (v !== null && v !== undefined) setVolumePercent(v)
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!controlError) return
+    const timer = setTimeout(() => setControlError(''), 4000)
+    return () => clearTimeout(timer)
+  }, [controlError])
+
+  // Guards against double-taps client-side; the server also rate-limits and
+  // serializes these calls so a burst of guests can't hammer Spotify at once.
+  const sendControl = async (action, request) => {
+    if (pendingAction) return
+    setPendingAction(action)
+    setControlError('')
+    try {
+      await request()
+    } catch (error) {
+      setControlError(error.response?.data?.error || 'Something went wrong.')
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
+  const handlePrevious = () => sendControl('previous', () => axios.post('/api/playback/previous'))
+  const handleNext = () => sendControl('next', () => axios.post('/api/playback/next'))
+  const handlePlayPause = () => sendControl('play-pause', () =>
+    axios.post(track?.is_playing ? '/api/playback/pause' : '/api/playback/play')
+  )
+  const handleVolumeDown = () => {
+    setMutedVolume(null)
+    sendControl('volume-down', () =>
+      axios.post('/api/playback/volume/down').then(res => {
+        if (res.data?.volume_percent !== undefined) setVolumePercent(res.data.volume_percent)
+      })
+    )
+  }
+  const handleVolumeUp = () => {
+    setMutedVolume(null)
+    sendControl('volume-up', () =>
+      axios.post('/api/playback/volume/up').then(res => {
+        if (res.data?.volume_percent !== undefined) setVolumePercent(res.data.volume_percent)
+      })
+    )
+  }
+  const setExactVolume = (value) => sendControl('volume-set', () =>
+    axios.post('/api/playback/volume', { volume: value }).then(res => {
+      if (res.data?.volume_percent !== undefined) setVolumePercent(res.data.volume_percent)
+    })
+  )
+
+  const handleVolumeClick = () => {
+    if (pendingAction) return
+    setVolumeInput(volumePercent === null ? '' : String(volumePercent))
+    setEditingVolume(true)
+  }
+  const submitVolumeInput = () => {
+    setEditingVolume(false)
+    const parsed = Math.round(Number(volumeInput))
+    if (!Number.isFinite(parsed)) return
+    setMutedVolume(null)
+    setExactVolume(Math.min(100, Math.max(0, parsed)))
+  }
+  const handleVolumeInputKeyDown = (e) => {
+    if (e.key === 'Enter') e.target.blur()
+    if (e.key === 'Escape') setEditingVolume(false)
+  }
+
+  const handleMuteToggle = () => {
+    if (mutedVolume !== null) {
+      const restore = mutedVolume
+      setMutedVolume(null)
+      setExactVolume(restore)
+    } else {
+      setMutedVolume(volumePercent ?? 0)
+      setExactVolume(0)
+    }
+  }
 
   useEffect(() => {
     trackRef.current = track
@@ -99,6 +195,97 @@ function NowPlaying({ track }) {
           </div>
         </div>
       </div>
+
+      {controlsEnabled && (
+        <div className="flex flex-col items-center gap-3 px-3 sm:px-4 pb-3 sm:pb-4 border-t pt-3">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleVolumeDown}
+              disabled={!!pendingAction}
+              aria-label="Volume down"
+              className="h-9 w-9 rounded-full border flex items-center justify-center hover:bg-muted disabled:opacity-40 transition-colors"
+            >
+              <Minus className="h-4 w-4" />
+            </button>
+            {editingVolume ? (
+              <input
+                type="number"
+                min="0"
+                max="100"
+                autoFocus
+                value={volumeInput}
+                onChange={(e) => setVolumeInput(e.target.value)}
+                onBlur={submitVolumeInput}
+                onKeyDown={handleVolumeInputKeyDown}
+                className="w-12 text-center text-sm font-mono tabular-nums bg-transparent border-b border-primary outline-none"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={handleVolumeClick}
+                disabled={!!pendingAction}
+                aria-label="Set exact volume"
+                className="w-10 text-center text-sm font-mono tabular-nums text-muted-foreground hover:text-foreground disabled:opacity-40"
+              >
+                {volumePercent === null ? '--' : volumePercent}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleVolumeUp}
+              disabled={!!pendingAction}
+              aria-label="Volume up"
+              className="h-9 w-9 rounded-full border flex items-center justify-center hover:bg-muted disabled:opacity-40 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleMuteToggle}
+              disabled={!!pendingAction}
+              aria-label={mutedVolume !== null ? 'Unmute' : 'Mute'}
+              className="h-9 w-9 rounded-full border flex items-center justify-center hover:bg-muted disabled:opacity-40 transition-colors"
+            >
+              {mutedVolume !== null ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handlePrevious}
+              disabled={!!pendingAction}
+              aria-label="Previous track"
+              className="h-9 w-9 rounded-full border flex items-center justify-center hover:bg-muted disabled:opacity-40 transition-colors"
+            >
+              <SkipBack className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handlePlayPause}
+              disabled={!!pendingAction}
+              aria-label={track.is_playing ? 'Pause' : 'Play'}
+              className="h-11 w-11 rounded-full border flex items-center justify-center hover:bg-muted disabled:opacity-40 transition-colors"
+            >
+              {track.is_playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+            </button>
+            <button
+              type="button"
+              onClick={handleNext}
+              disabled={!!pendingAction}
+              aria-label="Next track"
+              className="h-9 w-9 rounded-full border flex items-center justify-center hover:bg-muted disabled:opacity-40 transition-colors"
+            >
+              <SkipForward className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {controlError && (
+        <div className="px-3 sm:px-4 pb-3 text-xs text-destructive">{controlError}</div>
+      )}
     </div>
   )
 }

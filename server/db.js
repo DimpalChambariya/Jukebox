@@ -145,7 +145,8 @@ function initDatabase() {
     { key: 'aura_enabled', value: 'false' },
     { key: 'queue_url', value: '' },
     { key: 'queue_grace_period_enabled', value: 'true' },
-    { key: 'queue_grace_period_seconds', value: '5' }
+    { key: 'queue_grace_period_seconds', value: '5' },
+    { key: 'playback_controls_enabled', value: 'true' }
   ];
 
   const stmt = db.prepare('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)');

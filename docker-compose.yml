@@ -11,8 +11,13 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - ADMIN_PORT=3001
+      # This compose file serves plain HTTP directly (no TLS reverse proxy),
+      # so session cookies must not require HTTPS. Set to "true" instead if
+      # you put this behind an HTTPS proxy/tunnel (e.g. Cloudflare Tunnel).
+      - COOKIE_SECURE=false
       - CLIENT_URL=${CLIENT_URL:-http://localhost:3000}
       - ADMIN_CLIENT_URL=${ADMIN_CLIENT_URL:-http://localhost:3001}
+      - SESSION_SECRET=${SESSION_SECRET}
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
       - SPOTIFY_REFRESH_TOKEN=${SPOTIFY_REFRESH_TOKEN}
@@ -20,5 +25,6 @@ services:
       - DB_PATH=/app/data/queue.db
     volumes:
       - ./data:/app/data
+      - ./.env:/app/.env
     restart: unless-stopped
 

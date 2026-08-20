@@ -32,7 +32,7 @@ function AdminLogin({ totpRequired, onSuccess }) {
     <div className="flex min-h-0 w-full flex-1 flex-col justify-start px-4 pb-8 pt-4 sm:justify-center sm:py-8 sm:pb-safe sm:pt-safe">
       <Card className="mx-auto w-full max-w-md shrink-0 shadow-md">
         <CardContent className="px-4 pt-6 sm:px-6">
-          <h1 className="mb-1 text-center text-xl font-semibold">SpotiQueue Admin</h1>
+          <h1 className="mb-1 text-center text-xl font-semibold">MIC Jukebox Admin</h1>
           <p className="mb-6 text-center text-sm text-muted-foreground">
             {import.meta.env.VITE_DEMO_MODE === 'true'
               ? 'Sign in with password demo'

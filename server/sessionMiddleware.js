@@ -9,6 +9,15 @@ function createSessionMiddleware() {
   if (isProduction && !process.env.SESSION_SECRET) {
     console.warn('WARNING: SESSION_SECRET is not set. Set it in production.');
   }
+  // A "Secure" cookie is only ever stored by the browser over HTTPS. Plenty of
+  // production deployments of this app are plain HTTP on a LAN/127.0.0.1 with
+  // no reverse proxy in front, so tying this strictly to NODE_ENV silently
+  // breaks admin login there (the cookie never gets set, login just "blinks").
+  // Let COOKIE_SECURE override the default; only set it 'true' if this is
+  // actually served over HTTPS (directly or via a TLS-terminating proxy).
+  const cookieSecure = process.env.COOKIE_SECURE !== undefined
+    ? process.env.COOKIE_SECURE === 'true'
+    : isProduction;
 
   return session({
     store: new SQLiteStore({
@@ -23,7 +32,7 @@ function createSessionMiddleware() {
     saveUninitialized: false,
     name: 'spotiqueue.admin.sid',
     cookie: {
-      secure: isProduction,
+      secure: cookieSecure,
       httpOnly: true,
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000

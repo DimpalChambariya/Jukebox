@@ -13,6 +13,35 @@ function clearTokenCache() {
 // Spotify API base URL
 const SPOTIFY_API_BASE = 'https://api.spotify.com/v1';
 
+// All "control" calls (queue/next/previous/volume) go through this single
+// serialized, throttled gate. With 5-6 guests pressing buttons at once this
+// is what keeps our app from bursting Spotify with simultaneous requests -
+// which is the kind of pattern that gets an account flagged/blocked.
+const MIN_CONTROL_INTERVAL_MS = 900;
+let controlQueue = Promise.resolve();
+let lastControlCallAt = 0;
+
+function runControlCall(fn) {
+  const run = controlQueue.then(async () => {
+    const wait = MIN_CONTROL_INTERVAL_MS - (Date.now() - lastControlCallAt);
+    if (wait > 0) {
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
+    lastControlCallAt = Date.now();
+    return fn();
+  });
+  // Swallow errors here so one failed call doesn't wedge the queue for
+  // everyone after it; the real error still rejects for the caller below.
+  controlQueue = run.catch(() => {});
+  return run;
+}
+
+// Cached playback state so a burst of volume +/- clicks doesn't each need
+// their own extra GET /me/player round trip before the PUT.
+let playbackStateCache = null;
+let playbackStateCacheExpiry = 0;
+const PLAYBACK_STATE_CACHE_TTL = 4000;
+
 // Get access token using client credentials flow
 async function getAccessToken() {
   const now = Math.floor(Date.now() / 1000);
@@ -231,28 +260,194 @@ async function getNowPlaying() {
 
 // Add track to queue (requires user authorization)
 async function addToQueue(trackUri) {
+  return runControlCall(async () => {
+    const token = await getAccessToken();
+
+    try {
+      await axios.post(`${SPOTIFY_API_BASE}/me/player/queue`, null, {
+        params: {
+          uri: trackUri
+        },
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      return true;
+    } catch (error) {
+      console.error('Error adding to queue:', error.response?.data || error.message);
+
+      if (error.response?.status === 404) {
+        throw new Error('No active Spotify device found. Please start playing music on a device.');
+      }
+
+      throw new Error('Failed to add track to queue');
+    }
+  });
+}
+
+// Get current playback state (device, volume, is_playing). Cached briefly so
+// repeated volume nudges don't each cost an extra read call.
+async function getPlaybackState({ fresh = false } = {}) {
+  const now = Date.now();
+  if (!fresh && playbackStateCache && playbackStateCacheExpiry > now) {
+    return playbackStateCache;
+  }
+
   const token = await getAccessToken();
-  
+
   try {
-    await axios.post(`${SPOTIFY_API_BASE}/me/player/queue`, null, {
-      params: {
-        uri: trackUri
-      },
+    const response = await axios.get(`${SPOTIFY_API_BASE}/me/player`, {
       headers: {
         'Authorization': `Bearer ${token}`
       }
     });
-    
-    return true;
-  } catch (error) {
-    console.error('Error adding to queue:', error.response?.data || error.message);
-    
-    if (error.response?.status === 404) {
-      throw new Error('No active Spotify device found. Please start playing music on a device.');
+
+    if (response.status === 204 || !response.data) {
+      playbackStateCache = null;
+      playbackStateCacheExpiry = now + PLAYBACK_STATE_CACHE_TTL;
+      return null;
     }
-    
-    throw new Error('Failed to add track to queue');
+
+    const state = {
+      is_playing: response.data.is_playing,
+      volume_percent: response.data.device?.volume_percent ?? null,
+      device_id: response.data.device?.id ?? null,
+      device_name: response.data.device?.name ?? null
+    };
+
+    playbackStateCache = state;
+    playbackStateCacheExpiry = now + PLAYBACK_STATE_CACHE_TTL;
+    return state;
+  } catch (error) {
+    if (error.response?.status === 401) {
+      accessToken = null;
+      tokenExpiresAt = 0;
+    }
+    console.error('Error getting playback state:', error.response?.data || error.message);
+    throw new Error('Failed to get playback state');
   }
+}
+
+function invalidatePlaybackStateCache() {
+  playbackStateCacheExpiry = 0;
+}
+
+// Skip to next track (requires user authorization)
+async function skipToNext() {
+  return runControlCall(async () => {
+    const token = await getAccessToken();
+    try {
+      await axios.post(`${SPOTIFY_API_BASE}/me/player/next`, null, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      invalidatePlaybackStateCache();
+      return true;
+    } catch (error) {
+      console.error('Error skipping to next track:', error.response?.data || error.message);
+      if (error.response?.status === 404) {
+        throw new Error('No active Spotify device found. Please start playing music on a device.');
+      }
+      throw new Error('Failed to skip to next track');
+    }
+  });
+}
+
+// Skip to previous track (requires user authorization)
+async function skipToPrevious() {
+  return runControlCall(async () => {
+    const token = await getAccessToken();
+    try {
+      await axios.post(`${SPOTIFY_API_BASE}/me/player/previous`, null, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      invalidatePlaybackStateCache();
+      return true;
+    } catch (error) {
+      console.error('Error skipping to previous track:', error.response?.data || error.message);
+      if (error.response?.status === 404) {
+        throw new Error('No active Spotify device found. Please start playing music on a device.');
+      }
+      throw new Error('Failed to skip to previous track');
+    }
+  });
+}
+
+// Resume playback (requires user authorization)
+async function resumePlayback() {
+  return runControlCall(async () => {
+    const token = await getAccessToken();
+    try {
+      await axios.put(`${SPOTIFY_API_BASE}/me/player/play`, null, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      invalidatePlaybackStateCache();
+      return true;
+    } catch (error) {
+      console.error('Error resuming playback:', error.response?.data || error.message);
+      if (error.response?.status === 404) {
+        throw new Error('No active Spotify device found. Please start playing music on a device.');
+      }
+      throw new Error('Failed to resume playback');
+    }
+  });
+}
+
+// Pause playback (requires user authorization)
+async function pausePlayback() {
+  return runControlCall(async () => {
+    const token = await getAccessToken();
+    try {
+      await axios.put(`${SPOTIFY_API_BASE}/me/player/pause`, null, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      invalidatePlaybackStateCache();
+      return true;
+    } catch (error) {
+      console.error('Error pausing playback:', error.response?.data || error.message);
+      if (error.response?.status === 404) {
+        throw new Error('No active Spotify device found. Please start playing music on a device.');
+      }
+      throw new Error('Failed to pause playback');
+    }
+  });
+}
+
+// Set absolute volume (0-100), requires user authorization
+async function setVolume(volumePercent) {
+  const clamped = Math.max(0, Math.min(100, Math.round(volumePercent)));
+  return runControlCall(async () => {
+    const token = await getAccessToken();
+    try {
+      await axios.put(`${SPOTIFY_API_BASE}/me/player/volume`, null, {
+        params: { volume_percent: clamped },
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      playbackStateCache = { ...(playbackStateCache || {}), volume_percent: clamped };
+      playbackStateCacheExpiry = Date.now() + PLAYBACK_STATE_CACHE_TTL;
+      return clamped;
+    } catch (error) {
+      console.error('Error setting volume:', error.response?.data || error.message);
+      if (error.response?.status === 404) {
+        throw new Error('No active Spotify device found, or this device does not support volume control.');
+      }
+      throw new Error('Failed to set volume');
+    }
+  });
+}
+
+// Nudge volume up/down by a step, reading the current volume from cache when
+// possible to avoid an extra GET before every click.
+async function adjustVolume(deltaPercent) {
+  let state = await getPlaybackState();
+  if (!state || state.volume_percent === null || state.volume_percent === undefined) {
+    state = await getPlaybackState({ fresh: true });
+  }
+  if (!state || state.volume_percent === null || state.volume_percent === undefined) {
+    throw new Error('No active Spotify device found. Please start playing music on a device.');
+  }
+  const newVolume = Math.max(0, Math.min(100, state.volume_percent + deltaPercent));
+  return setVolume(newVolume);
 }
 
 // Get current queue
@@ -300,6 +495,13 @@ module.exports = {
   addToQueue,
   getQueue,
   getAccessToken,
-  clearTokenCache
+  clearTokenCache,
+  getPlaybackState,
+  skipToNext,
+  skipToPrevious,
+  resumePlayback,
+  pausePlayback,
+  setVolume,
+  adjustVolume
 };
 

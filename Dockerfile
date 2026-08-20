@@ -2,6 +2,9 @@ FROM node:18-alpine
 
 WORKDIR /app
 
+# Both client and admin import a sibling ../demo module via a Vite alias
+COPY demo ./demo
+
 # Build client first (before copying root package.json to avoid conflicts)
 WORKDIR /app/client
 COPY client/package.json ./

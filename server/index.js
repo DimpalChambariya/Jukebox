@@ -13,6 +13,7 @@ const authRouter = require('./routes/auth');
 const githubAuthRouter = require('./routes/github-auth');
 const googleAuthRouter = require('./routes/google-auth');
 const prequeueRouter = require('./routes/prequeue');
+const playbackRouter = require('./routes/playback');
 const { processExpiredPendingQueues } = require('./routes/queue');
 const { initDatabase } = require('./db');
 const { createSessionMiddleware } = require('./sessionMiddleware');
@@ -81,6 +82,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/github', githubAuthRouter);
 app.use('/api/google', googleAuthRouter);
 app.use('/api/prequeue', prequeueRouter);
+app.use('/api/playback', playbackRouter);
 
 // Root route - helpful message in development
 if (!isProduction) {
