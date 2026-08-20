@@ -245,33 +245,39 @@ function getAddedByMap(trackIds) {
   return map;
 }
 
+// Shared by GET /current and the duplicate check in POST /add, so checking
+// for a duplicate doesn't cost an extra Spotify call beyond what guests
+// viewing the queue already trigger.
+async function getCachedQueue() {
+  const now = Date.now();
+  if (queueCache && queueCacheExpiry > now) {
+    return queueCache;
+  }
+
+  const queue = await getQueue();
+  const guestQueuedIds = new Set(
+    db.prepare("SELECT DISTINCT track_id FROM queue_attempts WHERE status = 'success' AND track_id IS NOT NULL").all().map(r => r.track_id)
+  );
+  const addedByMap = getAddedByMap([
+    ...(queue?.queue || []).map(t => t.id),
+    queue?.currently_playing?.id
+  ]);
+
+  if (queue?.queue?.length > 0) {
+    queue.queue = queue.queue.map(t => ({ ...t, votable: guestQueuedIds.has(t.id), added_by: addedByMap[t.id] || null }));
+  }
+  if (queue?.currently_playing) {
+    queue.currently_playing = { ...queue.currently_playing, votable: guestQueuedIds.has(queue.currently_playing.id), added_by: addedByMap[queue.currently_playing.id] || null };
+  }
+
+  queueCache = queue;
+  queueCacheExpiry = now + QUEUE_CACHE_TTL;
+  return queue;
+}
+
 router.get('/current', async (req, res) => {
   try {
-    const now = Date.now();
-
-    if (queueCache && queueCacheExpiry > now) {
-      return res.json(queueCache);
-    }
-
-    const queue = await getQueue();
-    const guestQueuedIds = new Set(
-      db.prepare("SELECT DISTINCT track_id FROM queue_attempts WHERE status = 'success' AND track_id IS NOT NULL").all().map(r => r.track_id)
-    );
-    const addedByMap = getAddedByMap([
-      ...(queue?.queue || []).map(t => t.id),
-      queue?.currently_playing?.id
-    ]);
-
-    if (queue?.queue?.length > 0) {
-      queue.queue = queue.queue.map(t => ({ ...t, votable: guestQueuedIds.has(t.id), added_by: addedByMap[t.id] || null }));
-    }
-    if (queue?.currently_playing) {
-      queue.currently_playing = { ...queue.currently_playing, votable: guestQueuedIds.has(queue.currently_playing.id), added_by: addedByMap[queue.currently_playing.id] || null };
-    }
-
-    queueCache = queue;
-    queueCacheExpiry = now + QUEUE_CACHE_TTL;
-
+    const queue = await getCachedQueue();
     res.json(queue);
   } catch (error) {
     console.error('Queue error:', error);
@@ -462,6 +468,26 @@ router.post('/add', async (req, res) => {
     `).run(fingerprintId, trackId, 'banned', 'Track banned', now);
 
     return res.status(403).json({ error: 'This song is not allowed.' });
+  }
+
+  // Spotify has no "remove from queue" endpoint, so the only way to keep a
+  // song from appearing twice is to stop it from being added again while
+  // it's still playing or already waiting in the queue.
+  try {
+    const currentQueue = await getCachedQueue();
+    const alreadyQueued = currentQueue?.currently_playing?.id === trackId
+      || (currentQueue?.queue || []).some((t) => t.id === trackId);
+    if (alreadyQueued) {
+      db.prepare(`
+        INSERT INTO queue_attempts (fingerprint_id, track_id, status, error_message, timestamp)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(fingerprintId, trackId, 'duplicate', 'Already in queue', now);
+
+      return res.status(409).json({ error: 'This song is already in the queue.' });
+    }
+  } catch (error) {
+    // If we can't confirm one way or the other, don't block queueing on it
+    console.error('Duplicate check error:', error.message);
   }
 
   try {
