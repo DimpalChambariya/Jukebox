@@ -198,6 +198,14 @@ function Configuration() {
 
       <Card>
         <CardContent className="pt-6">
+          <h2 className="text-lg font-semibold mb-4">Music Sources</h2>
+          <ConfigItem config={config} updateConfig={updateConfig} label={<label className="flex items-center gap-2"><input type="checkbox" checked={config.spotify_enabled !== 'false'} onChange={(e) => handleChange('spotify_enabled', e.target.checked ? 'true' : 'false')} /> Enable Spotify</label>} saveKey="spotify_enabled" saveVal={config.spotify_enabled !== 'false' ? 'true' : 'false'} help="Include Spotify results in search and allow queueing to the Spotify device." />
+          <ConfigItem config={config} updateConfig={updateConfig} label={<label className="flex items-center gap-2"><input type="checkbox" checked={config.youtube_enabled === 'true'} onChange={(e) => handleChange('youtube_enabled', e.target.checked ? 'true' : 'false')} /> Enable YouTube Music</label>} saveKey="youtube_enabled" saveVal={config.youtube_enabled || 'false'} help="Include YouTube Music results. Playback happens in the /display page, which must stay open with playback started." />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-6">
           <h2 className="text-lg font-semibold mb-4">Playback Controls</h2>
           <ConfigItem config={config} updateConfig={updateConfig} label={<label className="flex items-center gap-2"><input type="checkbox" checked={config.playback_controls_enabled !== 'false'} onChange={(e) => handleChange('playback_controls_enabled', e.target.checked ? 'true' : 'false')} /> Enable Guest Playback Controls</label>} saveKey="playback_controls_enabled" saveVal={config.playback_controls_enabled !== 'false' ? 'true' : 'false'} help="Let guests skip next/previous and adjust volume. Requests are queued and throttled server-side so bursts of guests can't spam the Spotify API." />
         </CardContent>

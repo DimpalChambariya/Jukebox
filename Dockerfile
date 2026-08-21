@@ -23,7 +23,10 @@ RUN npm run build
 WORKDIR /app
 COPY server ./server
 COPY package*.json ./
-RUN npm install --production
+# better-sqlite3 falls back to a source build when its prebuilt binary can't be fetched
+RUN apk add --no-cache --virtual .build-deps python3 make g++ \
+ && npm install --production \
+ && apk del .build-deps
 
 # Create data directory
 RUN mkdir -p /app/data

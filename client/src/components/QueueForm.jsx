@@ -167,7 +167,7 @@ function QueueForm({ fingerprintId }) {
     setSearchResults([])
   }
 
-  const handleQueueTrack = async (trackId) => {
+  const handleQueueTrack = async (trackId, provider) => {
     if (pendingQueue) return
     if (!fingerprintId) {
       setMessage('Still connecting - please wait a moment and try again.')
@@ -187,7 +187,8 @@ function QueueForm({ fingerprintId }) {
       const url = prequeueEnabled ? '/api/prequeue/submit' : '/api/queue/add'
       const response = await axios.post(url, {
         fingerprint_id: fingerprintId,
-        track_id: trackId
+        track_id: trackId,
+        provider
       })
       handleQueueResponse(response, prequeueEnabled)
     } catch (error) {
@@ -357,7 +358,7 @@ function QueueForm({ fingerprintId }) {
                   <div
                     key={track.id}
                     className="flex items-center gap-3 p-3 rounded-lg border hover:bg-accent/50 active:bg-accent/70 cursor-pointer transition-colors touch-manipulation"
-                    onClick={() => !inputsDisabled && handleQueueTrack(track.id)}
+                    onClick={() => !inputsDisabled && handleQueueTrack(track.id, track.provider)}
                   >
                     {track.album_art && (
                       <img src={track.album_art} alt={track.album} className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg object-cover shrink-0" />
@@ -366,10 +367,15 @@ function QueueForm({ fingerprintId }) {
                       <div className="font-medium truncate flex items-center gap-2">
                         {track.name}
                         {track.explicit && <span className="text-xs px-1.5 py-0.5 rounded bg-muted">E</span>}
+                        {config.youtube_enabled && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${track.provider === 'youtube' ? 'bg-red-500/15 text-red-600 dark:text-red-400' : 'bg-green-500/15 text-green-700 dark:text-green-400'}`}>
+                            {track.provider === 'youtube' ? 'YouTube' : 'Spotify'}
+                          </span>
+                        )}
                       </div>
                       <div className="text-sm text-muted-foreground truncate">{track.artists}</div>
                     </div>
-                    <Button size="sm" onClick={(e) => { e.stopPropagation(); handleQueueTrack(track.id) }} disabled={inputsDisabled} className="min-h-[40px] min-w-[64px] touch-manipulation shrink-0">
+                    <Button size="sm" onClick={(e) => { e.stopPropagation(); handleQueueTrack(track.id, track.provider) }} disabled={inputsDisabled} className="min-h-[40px] min-w-[64px] touch-manipulation shrink-0">
                       Queue
                     </Button>
                   </div>
@@ -386,7 +392,7 @@ function QueueForm({ fingerprintId }) {
               inputMode="url"
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
-              placeholder="Paste Spotify track URL"
+              placeholder={config.youtube_enabled ? 'Paste Spotify or YouTube track URL' : 'Paste Spotify track URL'}
               disabled={inputsDisabled}
               className="min-h-[44px] text-base sm:text-sm"
             />
@@ -394,6 +400,7 @@ function QueueForm({ fingerprintId }) {
               <div>Examples:</div>
               <code className="block break-all">https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC</code>
               <code className="block break-all">spotify:track:4uLU6hMCjMI75M1A2tKUQC</code>
+              {config.youtube_enabled && <code className="block break-all">https://music.youtube.com/watch?v=dQw4w9WgXcQ</code>}
             </div>
             <Button type="submit" disabled={inputsDisabled || !urlInput.trim()} className="w-full min-h-[44px] touch-manipulation">
               {isQueueing ? 'Queueing...' : 'Queue Track'}

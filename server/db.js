@@ -78,6 +78,7 @@ function initDatabase() {
       FOREIGN KEY (fingerprint_id) REFERENCES fingerprints(id)
     )
   `);
+  try { db.exec(`ALTER TABLE pending_queues ADD COLUMN provider TEXT NOT NULL DEFAULT 'spotify'`); } catch (e) { if (!e.message?.includes('duplicate')) console.warn(e.message); }
 
   // One-at-a-time lock so concurrent confirm paths cannot double-add to Spotify
   db.exec(`
@@ -99,6 +100,24 @@ function initDatabase() {
       status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'declined')),
       approved_by TEXT,
       created_at INTEGER DEFAULT (strftime('%s', 'now')),
+      FOREIGN KEY (fingerprint_id) REFERENCES fingerprints(id)
+    )
+  `);
+
+  try { db.exec(`ALTER TABLE prequeue ADD COLUMN provider TEXT NOT NULL DEFAULT 'spotify'`); } catch (e) { if (!e.message?.includes('duplicate')) console.warn(e.message); }
+
+  // YouTube Music has no upstream queue of its own, so this table IS the queue
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS yt_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      video_id TEXT NOT NULL,
+      track_name TEXT NOT NULL,
+      artist_name TEXT,
+      album_art TEXT,
+      duration_ms INTEGER,
+      fingerprint_id TEXT,
+      status TEXT DEFAULT 'queued' CHECK(status IN ('queued', 'playing', 'played', 'skipped')),
+      added_at INTEGER DEFAULT (strftime('%s', 'now')),
       FOREIGN KEY (fingerprint_id) REFERENCES fingerprints(id)
     )
   `);
@@ -146,7 +165,9 @@ function initDatabase() {
     { key: 'queue_url', value: '' },
     { key: 'queue_grace_period_enabled', value: 'true' },
     { key: 'queue_grace_period_seconds', value: '5' },
-    { key: 'playback_controls_enabled', value: 'true' }
+    { key: 'playback_controls_enabled', value: 'true' },
+    { key: 'spotify_enabled', value: 'true' },
+    { key: 'youtube_enabled', value: 'false' }
   ];
 
   const stmt = db.prepare('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)');
