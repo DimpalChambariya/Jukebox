@@ -24,7 +24,9 @@ router.get('/public', (req, res) => {
     queue_url: queueUrl,
     queue_grace_period_enabled: getConfig('queue_grace_period_enabled') !== 'false',
     queue_grace_period_seconds: parseInt(getConfig('queue_grace_period_seconds') || '5', 10),
-    playback_controls_enabled: getConfig('playback_controls_enabled') !== 'false'
+    playback_controls_enabled: getConfig('playback_controls_enabled') !== 'false',
+    spotify_enabled: getConfig('spotify_enabled') !== 'false',
+    youtube_enabled: getConfig('youtube_enabled') === 'true'
   });
 });
 

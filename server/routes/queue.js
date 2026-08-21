@@ -3,10 +3,50 @@ const crypto = require('crypto');
 const { getDb } = require('../db');
 const { getConfig } = require('../utils/config');
 const { searchTracks, getTrack, parseSpotifyUrl, addToQueue, getQueue } = require('../utils/spotify');
+const youtube = require('../utils/youtube');
 const { getGuestAuthRequirements, sendAuthRequiredResponse } = require('../utils/guest-auth');
 
 const router = express.Router();
 const db = getDb();
+
+function isProviderEnabled(provider) {
+  return provider === 'youtube'
+    ? getConfig('youtube_enabled') === 'true'
+    : getConfig('spotify_enabled') !== 'false';
+}
+
+// Spotify owns the real device queue; YouTube Music has no such API, so
+// yt_queue IS the queue and the /display player drains it.
+function enqueueTrack(provider, trackInfo, fingerprintId) {
+  if (provider === 'youtube') {
+    db.prepare(`
+      INSERT INTO yt_queue (video_id, track_name, artist_name, album_art, duration_ms, fingerprint_id)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(trackInfo.id, trackInfo.name, trackInfo.artists, trackInfo.album_art || null, trackInfo.duration_ms || null, fingerprintId);
+    return Promise.resolve();
+  }
+  return addToQueue(trackInfo.uri);
+}
+
+function resolveTrack(provider, trackId) {
+  return provider === 'youtube' ? youtube.getTrack(trackId) : getTrack(trackId);
+}
+
+function getYouTubeQueue() {
+  return db.prepare(`
+    SELECT video_id, track_name, artist_name, album_art, duration_ms
+    FROM yt_queue WHERE status = 'queued' ORDER BY id
+  `).all().map(row => ({
+    id: row.video_id,
+    name: row.track_name,
+    artists: row.artist_name,
+    album: '',
+    album_art: row.album_art,
+    duration_ms: row.duration_ms,
+    uri: `https://music.youtube.com/watch?v=${row.video_id}`,
+    provider: 'youtube'
+  }));
+}
 
 function getCooldownFingerprintIds(fingerprint) {
   if (fingerprint.github_id) {
@@ -161,7 +201,13 @@ async function confirmPendingQueue(pendingId) {
       return { ok: false, status: 400, error: 'Could not fingerprint your device.' };
     }
 
-    await addToQueue(pending.track_uri);
+    await enqueueTrack(pending.provider || 'spotify', {
+      id: pending.track_id,
+      name: pending.track_name,
+      artists: pending.artist_name,
+      album_art: pending.album_art,
+      uri: pending.track_uri
+    }, pending.fingerprint_id);
 
     db.prepare(`
       INSERT INTO queue_attempts (fingerprint_id, track_id, track_name, artist_name, status, timestamp)
@@ -254,20 +300,31 @@ async function getCachedQueue() {
     return queueCache;
   }
 
-  const queue = await getQueue();
+  const ytQueue = isProviderEnabled('youtube') ? getYouTubeQueue() : [];
+  let queue = { currently_playing: null, queue: [] };
+  if (isProviderEnabled('spotify')) {
+    try {
+      queue = (await getQueue()) || queue;
+    } catch (error) {
+      // A Spotify outage shouldn't hide a working YouTube queue; with nothing
+      // else to show, let the caller fall back to the last good cache instead.
+      if (ytQueue.length === 0) throw error;
+      console.error('Spotify queue unavailable:', error.message);
+    }
+  }
+
   const guestQueuedIds = new Set(
     db.prepare("SELECT DISTINCT track_id FROM queue_attempts WHERE status = 'success' AND track_id IS NOT NULL").all().map(r => r.track_id)
   );
-  const addedByMap = getAddedByMap([
-    ...(queue?.queue || []).map(t => t.id),
-    queue?.currently_playing?.id
-  ]);
+  const upNext = [
+    ...(queue.queue || []).map(t => ({ ...t, provider: 'spotify' })),
+    ...ytQueue
+  ];
+  const addedByMap = getAddedByMap([...upNext.map(t => t.id), queue.currently_playing?.id]);
 
-  if (queue?.queue?.length > 0) {
-    queue.queue = queue.queue.map(t => ({ ...t, votable: guestQueuedIds.has(t.id), added_by: addedByMap[t.id] || null }));
-  }
-  if (queue?.currently_playing) {
-    queue.currently_playing = { ...queue.currently_playing, votable: guestQueuedIds.has(queue.currently_playing.id), added_by: addedByMap[queue.currently_playing.id] || null };
+  queue.queue = upNext.map(t => ({ ...t, votable: guestQueuedIds.has(t.id), added_by: addedByMap[t.id] || null }));
+  if (queue.currently_playing) {
+    queue.currently_playing = { ...queue.currently_playing, provider: 'spotify', votable: guestQueuedIds.has(queue.currently_playing.id), added_by: addedByMap[queue.currently_playing.id] || null };
   }
 
   queueCache = queue;
@@ -303,14 +360,41 @@ router.post('/search', async (req, res) => {
       return res.status(400).json({ error: 'Search query required' });
     }
 
-    let tracks = await searchTracks(query, 10);
+    const searches = [];
+    if (isProviderEnabled('spotify')) {
+      searches.push(searchTracks(query, 10)
+        .then(items => items.map(t => ({ ...t, provider: 'spotify' })))
+        .catch(error => ({ failed: 'spotify', error })));
+    }
+    if (isProviderEnabled('youtube')) {
+      searches.push(youtube.searchTracks(query, 10)
+        .catch(error => ({ failed: 'youtube', error })));
+    }
+    if (searches.length === 0) {
+      return res.status(503).json({ error: 'No music source is enabled.' });
+    }
+
+    const settled = await Promise.all(searches);
+    const failures = settled.filter(r => r.failed);
+    // One source being down must not take the other with it
+    if (failures.length === settled.length) {
+      throw failures[0].error;
+    }
+    failures.forEach(f => console.error(`${f.failed} search failed:`, f.error.message));
+
+    // Interleave so neither source dominates the top of the list
+    const lists = settled.filter(Array.isArray);
+    let tracks = [];
+    for (let i = 0; i < Math.max(...lists.map(l => l.length)); i++) {
+      lists.forEach(list => { if (list[i]) tracks.push(list[i]); });
+    }
 
     const banExplicit = getConfig('ban_explicit') === 'true';
     if (banExplicit) {
       tracks = tracks.filter(track => !track.explicit);
     }
 
-    res.json({ tracks });
+    res.json({ tracks, sources_unavailable: failures.map(f => f.failed) });
   } catch (error) {
     console.error('Search error:', error);
     const statusCode = error.message.includes('authentication') ? 401 : 500;
@@ -319,7 +403,7 @@ router.post('/search', async (req, res) => {
 });
 
 async function queueTrackImmediately(fingerprintId, fingerprint, trackId, trackInfo, now, res) {
-  await addToQueue(trackInfo.uri);
+  await enqueueTrack(trackInfo.provider, trackInfo, fingerprintId);
 
   db.prepare(`
     INSERT INTO queue_attempts (fingerprint_id, track_id, track_name, artist_name, status, timestamp)
@@ -445,19 +529,27 @@ router.post('/add', async (req, res) => {
     return res.status(409).json({ error: 'You already have a song waiting to be queued. Cancel it or wait for it to finish.' });
   }
 
+  let provider = req.body.provider === 'youtube' ? 'youtube' : 'spotify';
   let trackId = req.body.track_id;
 
   if (!trackId && req.body.track_url) {
-    trackId = parseSpotifyUrl(req.body.track_url);
+    // A pasted link identifies its own source, whatever the caller claimed
+    const youtubeId = youtube.parseYouTubeUrl(req.body.track_url);
+    provider = youtubeId ? 'youtube' : 'spotify';
+    trackId = youtubeId || parseSpotifyUrl(req.body.track_url);
     if (!trackId) {
       return res.status(400).json({
-        error: 'Invalid Spotify URL. Use format: https://open.spotify.com/track/TRACK_ID or spotify:track:TRACK_ID'
+        error: 'Unrecognised link. Paste a Spotify track URL (https://open.spotify.com/track/TRACK_ID or spotify:track:TRACK_ID) or a YouTube/YouTube Music link.'
       });
     }
   }
 
   if (!trackId) {
     return res.status(400).json({ error: 'Track ID or URL required' });
+  }
+
+  if (!isProviderEnabled(provider)) {
+    return res.status(503).json({ error: `${provider === 'youtube' ? 'YouTube Music' : 'Spotify'} is currently disabled.` });
   }
 
   const banned = db.prepare('SELECT * FROM banned_tracks WHERE track_id = ?').get(trackId);
@@ -491,7 +583,7 @@ router.post('/add', async (req, res) => {
   }
 
   try {
-    const trackInfo = await getTrack(trackId);
+    const trackInfo = { ...(await resolveTrack(provider, trackId)), provider };
 
     const banExplicit = getConfig('ban_explicit') === 'true';
     if (banExplicit && trackInfo.explicit) {
@@ -512,8 +604,8 @@ router.post('/add', async (req, res) => {
     const pendingId = crypto.randomBytes(8).toString('hex');
 
     db.prepare(`
-      INSERT INTO pending_queues (id, fingerprint_id, track_id, track_name, artist_name, album_art, track_uri, status, execute_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+      INSERT INTO pending_queues (id, fingerprint_id, track_id, track_name, artist_name, album_art, track_uri, provider, status, execute_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
     `).run(
       pendingId,
       fingerprintId,
@@ -522,6 +614,7 @@ router.post('/add', async (req, res) => {
       trackInfo.artists,
       trackInfo.album_art || null,
       trackInfo.uri,
+      provider,
       executeAt,
       now
     );
@@ -728,5 +821,80 @@ router.get('/votes', (req, res) => {
   }
 });
 
+// The /display page is the YouTube player: these endpoints hand it the queue
+// and track what it is doing so /api/now-playing can report YouTube playback.
+let ytNowPlaying = null;
+
+function getYouTubeNowPlaying() {
+  if (!ytNowPlaying) return null;
+  // A closed or backgrounded display stops sending heartbeats; treat it as stopped
+  if (Date.now() - ytNowPlaying.beat > 15000) return null;
+  return ytNowPlaying;
+}
+
+router.get('/yt/next', (req, res) => {
+  let row = db.prepare("SELECT * FROM yt_queue WHERE status = 'playing' ORDER BY id LIMIT 1").get();
+
+  if (!row) {
+    row = db.prepare("SELECT * FROM yt_queue WHERE status = 'queued' ORDER BY id LIMIT 1").get();
+    if (row) {
+      db.prepare("UPDATE yt_queue SET status = 'playing' WHERE id = ?").run(row.id);
+      queueCacheExpiry = 0;
+    }
+  }
+
+  if (!row) {
+    ytNowPlaying = null;
+    return res.json({ track: null });
+  }
+
+  res.json({
+    track: {
+      row_id: row.id,
+      id: row.video_id,
+      name: row.track_name,
+      artists: row.artist_name,
+      album_art: row.album_art,
+      duration_ms: row.duration_ms,
+      provider: 'youtube'
+    }
+  });
+});
+
+router.post('/yt/progress', (req, res) => {
+  const { row_id, position_ms, is_playing, duration_ms } = req.body;
+  let row = db.prepare('SELECT * FROM yt_queue WHERE id = ?').get(row_id);
+  if (!row) return res.status(404).json({ error: 'Not in queue' });
+
+  // Tracks added via the grace period arrive without a duration; the player knows it
+  if (!row.duration_ms && Number(duration_ms) > 0) {
+    db.prepare('UPDATE yt_queue SET duration_ms = ? WHERE id = ?').run(Math.round(duration_ms), row.id);
+    row = { ...row, duration_ms: Math.round(duration_ms) };
+  }
+
+  ytNowPlaying = {
+    id: row.video_id,
+    name: row.track_name,
+    artists: row.artist_name,
+    album: '',
+    album_art: row.album_art,
+    duration_ms: row.duration_ms,
+    progress_ms: Math.max(0, Number(position_ms) || 0),
+    is_playing: is_playing !== false,
+    provider: 'youtube',
+    beat: Date.now()
+  };
+  res.json({ success: true });
+});
+
+router.post('/yt/ended', (req, res) => {
+  const status = req.body.skipped ? 'skipped' : 'played';
+  db.prepare("UPDATE yt_queue SET status = ? WHERE id = ? AND status = 'playing'").run(status, req.body.row_id);
+  ytNowPlaying = null;
+  queueCacheExpiry = 0;
+  res.json({ success: true });
+});
+
 module.exports = router;
 module.exports.processExpiredPendingQueues = processExpiredPendingQueues;
+module.exports.getYouTubeNowPlaying = getYouTubeNowPlaying;

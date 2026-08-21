@@ -3,6 +3,7 @@ const { getNowPlaying, getQueue, skipToNext } = require('../utils/spotify');
 const { getLyrics } = require('../utils/lyrics');
 const { getConfig } = require('../utils/config');
 const { getDb } = require('../db');
+const { getYouTubeNowPlaying } = require('./queue');
 
 const router = express.Router();
 const db = getDb();
@@ -69,6 +70,20 @@ let queueForLyricsCacheExpiry = 0;
 
 router.get('/', async (req, res) => {
   try {
+    // A live YouTube player on the /display page takes precedence over Spotify.
+    // Its state is local, so it needs neither the cache nor a rate-limit budget.
+    const ytPlaying = getYouTubeNowPlaying();
+    if (ytPlaying) {
+      const { beat, ...track } = ytPlaying;
+      ensureLyricsFetch(track, track.id);
+      if (lyricsCache.has(track.id)) track.lyrics = lyricsCache.get(track.id);
+      return res.json({ track });
+    }
+
+    if (getConfig('spotify_enabled') === 'false') {
+      return res.json({ track: null });
+    }
+
     const now = Date.now();
     if (nowPlayingCache && nowPlayingCacheExpiry > now) {
       maybeAutoSkipDownvoted(nowPlayingCache.track);

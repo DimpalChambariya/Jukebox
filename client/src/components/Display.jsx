@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import axios from '@/lib/api'
+import YouTubePlayer from './YouTubePlayer'
 import { QRCodeSVG } from 'qrcode.react'
 import { Music, ChevronUp, ChevronDown, WifiOff, GripHorizontal } from 'lucide-react'
 import { useAuraColor } from '../hooks/useAuraColor'
@@ -112,6 +113,7 @@ export default function Display() {
   const [votingEnabled, setVotingEnabled] = useState(false)
   const [auraEnabled, setAuraEnabled] = useState(false)
   const [queueUrl, setQueueUrl] = useState('')
+  const [youtubeEnabled, setYoutubeEnabled] = useState(false)
   const [currentLyricIndex, setCurrentLyricIndex] = useState(0)
   const [cachedLyrics, setCachedLyrics] = useState(null)
   const [finishedTrackId, setFinishedTrackId] = useState(null)
@@ -300,6 +302,7 @@ export default function Display() {
         setVotingEnabled(res.data?.voting_enabled ?? false)
         setAuraEnabled(res.data?.aura_enabled ?? false)
         setQueueUrl(res.data?.queue_url || '')
+        setYoutubeEnabled(res.data?.youtube_enabled ?? false)
       } catch {
         if (!cancelled) setVotingEnabled(false)
       }
@@ -337,6 +340,7 @@ export default function Display() {
 
   return (
     <div className="fixed inset-0 bg-gray-950 text-white flex flex-col overflow-hidden select-none">
+      <YouTubePlayer enabled={youtubeEnabled} />
       {!connected && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 bg-red-900/80 backdrop-blur px-3 py-1.5 rounded-full text-sm text-red-200">
           <WifiOff className="h-3.5 w-3.5" />
